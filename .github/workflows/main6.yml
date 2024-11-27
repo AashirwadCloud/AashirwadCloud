@@ -1,0 +1,55 @@
+name: Minecraft Server Setup
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  setup-minecraft-server:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Step 1: Checkout repository
+    - name: Checkout Repository
+      uses: actions/checkout@v3
+
+    # Step 2: Install Java
+    - name: Install Java 17
+      run: |
+        sudo apt update
+        sudo apt install -y openjdk-17-jre-headless
+
+    # Step 3: Fetch Latest Server JAR URL
+    - name: Fetch Latest Minecraft Server JAR URL
+      id: fetch-url
+      run: |
+        SERVER_JAR_URL=$(curl -s https://launchermeta.mojang.com/mc/game/version_manifest.json \
+          | jq -r '.latest.release' \
+          | xargs -I {} curl -s https://launchermeta.mojang.com/mc/game/version_manifest.json \
+          | jq -r '.versions[] | select(.id=="{}") | .url' \
+          | xargs curl -s | jq -r '.downloads.server.url')
+        echo "Latest server JAR URL: $SERVER_JAR_URL"
+        echo "::set-output name=url::$SERVER_JAR_URL"
+      env:
+        SERVER_JAR_URL: "https://piston-data.mojang.com/v1/objects//server.jar"
+
+    # Step 4: Download Server JAR
+    - name: Download Minecraft Server JAR
+      run: |
+        mkdir -p minecraft-server
+        cd minecraft-server
+        curl -o server.jar ${{ steps.fetch-url.outputs.url }}
+        ls -la
+
+    # Step 5: Accept EULA
+    - name: Create EULA File
+      run: |
+        echo "eula=true" > minecraft-server/eula.txt
+        cat minecraft-server/eula.txt
+
+    # Step 6: Start Minecraft Server
+    - name: Start Minecraft Server
+      run: |
+        cd minecraft-server
+        java -Xmx1024M -Xms1024M -jar server.jar nogui
