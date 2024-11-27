@@ -25,7 +25,7 @@ jobs:
       run: |
         mkdir minecraft-server
         cd minecraft-server
-        https://launcher.mojang.com/v1/objects/abcdef1234567890abcdef1234567890/server.jar
+        https://piston-data.mojang.com/v1/objects/45810d238246d90e811d896f87b14695b7fb6839/server.jar
 
 
     # Step 4: Accept Minecraft EULA
