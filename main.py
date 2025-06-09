@@ -127,7 +127,6 @@ async def close(ctx):
     if "ticket" not in ctx.channel.name:
         return await ctx.send("❌ This is not a ticket channel.")
     await ctx.send("🛑 Closing ticket in 3 seconds...")
-    await asyncio.sleep(3)
     await ctx.channel.delete()
 
 # Run bot
