@@ -1,182 +1,191 @@
 import os
-import json
 import discord
+import json
 from discord.ext import commands
-from discord.ui import Button, View
-import asyncio
+from discord.ui import Button, View, Modal, TextInput
 
-# --- Intents & Bot Setup ---
-intents = discord.Intents.default()
-intents.message_content = True
-intents.guilds = True
-intents.members = True
-
+intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- Feature Toggle System (Part 1 + Part 2) ---
-feature_toggles = {
-    "Moderation": False,
-    "Fun": False,
-    "Tickets": True,   # Enable by default
-    "Economy": False
-}
+# ===============================
+# CONFIGURATION
+# ===============================
+DATA_FILE = "bot_data.json"
+BOT_OWNER_ID = 123456789012345678  # Replace with your ID
 
-BOT_OWNER_ID = 1217747285463531522  # Replace with your ID
+# ===============================
+# INITIAL LOAD / SAVE
+# ===============================
+if not os.path.exists(DATA_FILE):
+    with open(DATA_FILE, "w") as f:
+        json.dump({"toggles": {}, "ticket_config": {}, "reaction_roles": {}}, f)
 
-def generate_dashboard_view():
-    view = View()
-    for feature, enabled in feature_toggles.items():
-        button = Button(
-            label=f"{feature} {'✅' if enabled else '❌'}",
-            style=discord.ButtonStyle.green if enabled else discord.ButtonStyle.red,
-            custom_id=f"toggle_{feature}"
-        )
-        view.add_item(button)
-    return view
+def load_data():
+    with open(DATA_FILE, "r") as f:
+        return json.load(f)
 
+def save_data(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=4)
+
+data = load_data()
+
+# ===============================
+# DASHBOARD COMMAND
+# ===============================
 @bot.command()
 async def dashboard(ctx):
     if ctx.author.id != BOT_OWNER_ID:
-        return await ctx.send("❌ You are not authorized to use this dashboard.")
-    embed = discord.Embed(
-        title="🛠️ Bot Feature Dashboard",
-        description="Toggle features using the buttons below.",
-        color=0x00ffcc
-    )
-    await ctx.send(embed=embed, view=generate_dashboard_view())
+        return await ctx.send("❌ You are not authorized.")
 
-# --- Ticket System (Part 3) ---
-CONFIG_FILE = "ticket_config.json"
-TICKETS_FILE = "open_tickets.json"
-
-def load_json(file):
-    if not os.path.exists(file):
-        with open(file, "w") as f:
-            json.dump({}, f)
-    with open(file, "r") as f:
-        return json.load(f)
-
-def save_json(file, data):
-    with open(file, "w") as f:
-        json.dump(data, f, indent=4)
-
-ticket_config = load_json(CONFIG_FILE)
-open_tickets = load_json(TICKETS_FILE)
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def ticketsetup(ctx, *, args):
-    """
-    Usage:
-    !ticketsetup Title | Description | Button Text | Category Name | @StaffRole
-    """
-    try:
-        title, description, button, category_name, role_mention = [x.strip() for x in args.split("|")]
-    except:
-        return await ctx.send("❌ Format:\n`!ticketsetup Title | Description | Button | Category | @Role`")
-
-    staff_role = ctx.message.role_mentions[0] if ctx.message.role_mentions else None
-    if not staff_role:
-        return await ctx.send("❌ You must mention a staff role.")
-
-    config = {
-        "title": title,
-        "description": description,
-        "button": button,
-        "category": category_name,
-        "staff_role_id": staff_role.id
-    }
-
-    ticket_config[str(ctx.guild.id)] = config
-    save_json(CONFIG_FILE, ticket_config)
-
-    embed = discord.Embed(title=title, description=description, color=0x00ffcc)
+    toggles = data.get("toggles", {})
+    features = ["Moderation", "Fun", "Tickets", "ReactionRoles"]
+    
     view = View()
-    view.add_item(Button(label=button, style=discord.ButtonStyle.green, custom_id="open_ticket"))
+    for feature in features:
+        enabled = toggles.get(feature, False)
+        btn = Button(label=f"{feature} {'✅' if enabled else '❌'}",
+                     style=discord.ButtonStyle.green if enabled else discord.ButtonStyle.red,
+                     custom_id=f"toggle_{feature}")
+        view.add_item(btn)
+
+    embed = discord.Embed(title="🛠 Bot Feature Dashboard",
+                          description="Toggle features below.",
+                          color=0x00ffcc)
     await ctx.send(embed=embed, view=view)
-    await ctx.send("✅ Ticket system setup complete.")
 
-@bot.command()
-@commands.has_permissions(manage_channels=True)
-async def add(ctx, member: discord.Member):
-    if "ticket" not in ctx.channel.name:
-        return await ctx.send("❌ This is not a ticket channel.")
-    await ctx.channel.set_permissions(member, view_channel=True, send_messages=True)
-    await ctx.send(f"✅ {member.mention} added to the ticket.")
-
-@bot.command()
-async def close(ctx):
-    if "ticket" not in ctx.channel.name:
-        return await ctx.send("❌ This is not a ticket channel.")
-    await ctx.send("🕐 Closing ticket in 5 seconds...")
-    await asyncio.sleep(5)
-    for key, cid in list(open_tickets.items()):
-        if cid == ctx.channel.id:
-            del open_tickets[key]
-            save_json(TICKETS_FILE, open_tickets)
-            break
-    await ctx.channel.delete()
-
-# --- Interaction Handler ---
+# ===============================
+# BUTTON HANDLER (Dashboard + ReactionRoles)
+# ===============================
 @bot.event
 async def on_interaction(interaction: discord.Interaction):
-    cid = interaction.data.get("custom_id")
+    custom_id = interaction.data.get("custom_id")
 
-    # Toggle buttons
-    if cid and cid.startswith("toggle_") and interaction.user.id == BOT_OWNER_ID:
-        feature = cid.replace("toggle_", "")
-        if feature in feature_toggles:
-            feature_toggles[feature] = not feature_toggles[feature]
-            await interaction.response.edit_message(view=generate_dashboard_view())
-            print(f"Toggled: {feature} -> {feature_toggles[feature]}")
+    # Toggle Features
+    if custom_id and custom_id.startswith("toggle_"):
+        feature = custom_id.replace("toggle_", "")
+        data["toggles"][feature] = not data["toggles"].get(feature, False)
+        save_data(data)
+        await interaction.response.edit_message(view=await generate_dashboard_view())
         return
 
-    # Ticket button
-    if cid == "open_ticket":
-        user = interaction.user
-        guild = interaction.guild
-        gid = str(guild.id)
-        uid = str(user.id)
+    # Reaction Role button
+    if custom_id and custom_id.startswith("rr_"):
+        role_id = int(custom_id.split("_")[1])
+        role = interaction.guild.get_role(role_id)
+        if not role:
+            return await interaction.response.send_message("Role not found.", ephemeral=True)
 
-        if gid not in ticket_config:
-            return await interaction.response.send_message("❌ Ticket system not configured.", ephemeral=True)
+        if role in interaction.user.roles:
+            await interaction.user.remove_roles(role)
+            await interaction.response.send_message(f"❌ Role {role.name} removed.", ephemeral=True)
+        else:
+            await interaction.user.add_roles(role)
+            await interaction.response.send_message(f"✅ Role {role.name} added.", ephemeral=True)
 
-        if f"{gid}-{uid}" in open_tickets:
-            ticket_id = open_tickets[f"{gid}-{uid}"]
-            channel = guild.get_channel(ticket_id)
-            if channel:
-                return await interaction.response.send_message(f"📨 You already have a ticket: {channel.mention}", ephemeral=True)
+# ===============================
+# TICKET SETUP SYSTEM
+# ===============================
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setticket(ctx):
+    class TicketSetup(Modal, title="Ticket System Setup"):
+        category_id = TextInput(label="Category ID for tickets", placeholder="1234567890", required=True)
+        support_role = TextInput(label="Support Role ID", placeholder="1234567890", required=True)
+        ticket_message = TextInput(label="Ticket Message", placeholder="Click to create ticket!", required=True)
 
-        config = ticket_config[gid]
-        category = discord.utils.get(guild.categories, name=config["category"])
-        if not category:
-            category = await guild.create_category(config["category"])
+        async def on_submit(self, interaction: discord.Interaction):
+            guild_id = str(interaction.guild.id)
+            data["ticket_config"][guild_id] = {
+                "category_id": int(self.category_id.value),
+                "support_role": int(self.support_role.value),
+                "ticket_message": self.ticket_message.value
+            }
+            save_data(data)
+            await interaction.response.send_message("✅ Ticket system configured!", ephemeral=True)
 
-        staff_role = guild.get_role(config["staff_role_id"])
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
-            guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True),
-            staff_role: discord.PermissionOverwrite(view_channel=True, send_messages=True)
-        }
+    await ctx.send_modal(TicketSetup())
 
-        channel = await guild.create_text_channel(
-            name=f"ticket-{user.name}".replace(" ", "-"),
-            category=category,
-            overwrites=overwrites,
-            topic=f"Support ticket for {user.name}"
-        )
+@bot.command()
+async def setticketbutton(ctx):
+    guild_id = str(ctx.guild.id)
+    config = data.get("ticket_config", {}).get(guild_id)
+    if not config:
+        return await ctx.send("❌ Ticket system is not configured.")
 
-        open_tickets[f"{gid}-{uid}"] = channel.id
-        save_json(TICKETS_FILE, open_tickets)
+    embed = discord.Embed(title="🎫 Support Ticket",
+                          description=config["ticket_message"],
+                          color=0x3498db)
+    view = View()
+    view.add_item(Button(label="Create Ticket", style=discord.ButtonStyle.green, custom_id="create_ticket"))
+    await ctx.send(embed=embed, view=view)
 
-        await channel.send(f"🎫 {user.mention}, thank you for opening a ticket! A team member will be with you shortly.\nUse `!close` to close this ticket.")
-        await interaction.response.send_message(f"✅ Ticket created: {channel.mention}", ephemeral=True)
+# ===============================
+# HANDLE TICKET BUTTON
+# ===============================
+@bot.event
+async def on_button_click(interaction: discord.Interaction):
+    if interaction.custom_id != "create_ticket":
+        return
 
-# --- Bot Ready ---
+    guild_id = str(interaction.guild.id)
+    config = data["ticket_config"].get(guild_id)
+    if not config:
+        return await interaction.response.send_message("❌ Ticket system not configured.", ephemeral=True)
+
+    category = interaction.guild.get_channel(config["category_id"])
+    support_role = interaction.guild.get_role(config["support_role"])
+    overwrites = {
+        interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
+        support_role: discord.PermissionOverwrite(view_channel=True, send_messages=True)
+    }
+
+    ticket_channel = await interaction.guild.create_text_channel(
+        name=f"ticket-{interaction.user.name}",
+        category=category,
+        overwrites=overwrites
+    )
+    await ticket_channel.send(f"{interaction.user.mention} ticket created! {support_role.mention}")
+    await interaction.response.send_message(f"✅ Ticket created: {ticket_channel.mention}", ephemeral=True)
+
+# ===============================
+# REACTION ROLE SETUP
+# ===============================
+@bot.command()
+@commands.has_permissions(manage_roles=True)
+async def createreactionrole(ctx, role: discord.Role, *, label):
+    view = View()
+    button = Button(label=label, style=discord.ButtonStyle.primary, custom_id=f"rr_{role.id}")
+    view.add_item(button)
+
+    embed = discord.Embed(title="🎭 Get Your Role",
+                          description=f"Click the button to toggle the role: {role.name}",
+                          color=discord.Color.purple())
+    await ctx.send(embed=embed, view=view)
+
+# ===============================
+# DASHBOARD VIEW GENERATOR
+# ===============================
+async def generate_dashboard_view():
+    toggles = data.get("toggles", {})
+    features = ["Moderation", "Fun", "Tickets", "ReactionRoles"]
+
+    view = View()
+    for feature in features:
+        enabled = toggles.get(feature, False)
+        btn = Button(label=f"{feature} {'✅' if enabled else '❌'}",
+                     style=discord.ButtonStyle.green if enabled else discord.ButtonStyle.red,
+                     custom_id=f"toggle_{feature}")
+        view.add_item(btn)
+    return view
+
+# ===============================
+# BOT START
+# ===============================
 @bot.event
 async def on_ready():
-    print(f"🤖 Logged in as {bot.user}")
+    print(f"✅ Logged in as {bot.user}")
 
-# --- Start Bot ---
 bot.run(os.getenv("TOKEN"))
+
