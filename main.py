@@ -7,3 +7,5 @@ intents.members = True               # Needed if using member join/leave
 intents.presences = False            # Optional
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+import os
+bot.run(os.getenv("TOKEN"))
