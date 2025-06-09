@@ -20,7 +20,7 @@ feature_toggles = {
 }
 
 # Only allow bot owner to access dashboard
-BOT_OWNER_ID = 123456789012345678  # 🔁 Replace with your actual Discord user ID
+BOT_OWNER_ID = 1217747285463531522  # 🔁 Replace with your actual Discord user ID
 
 # Generate interactive dashboard view
 def generate_dashboard_view():
