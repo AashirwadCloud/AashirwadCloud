@@ -18,7 +18,7 @@ feature_toggles = {
     "Economy": False
 }
 
-BOT_OWNER_ID = YOUR_DISCORD_USER_ID  # Replace this
+BOT_OWNER_ID = 1217747285463531522  # Replace this
 
 # Generate dashboard buttons
 def generate_dashboard_view():
