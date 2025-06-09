@@ -62,4 +62,6 @@ async def on_interaction(interaction: discord.Interaction):
         feature_toggles[feature] = not feature_toggles[feature]
         await interaction.response.edit_message(view=generate_dashboard_view())
         print(f"Toggled: {feature} -> {feature_toggles[feature]}")
+        
       bot.run(os.getenv("TOKEN"))
+
