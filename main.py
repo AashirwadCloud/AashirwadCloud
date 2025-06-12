@@ -130,7 +130,7 @@ async def create_ticket_channel(member, guild):
 # Commands
 @bot.hybrid_command(description="Check bot latency")
 async def ping(ctx):
-    await ctx.send(f'Pong! {round(bot.lat.ency * 1000)}ms')
+    await ctx.send(f'Pong! {round(bot.latency * 1000)}ms')
 
 @bot.hybrid_command(description="Kick a member from the server")
 @commands.has_permissions(kick_members=True)
@@ -225,7 +225,8 @@ ytdl_format_options = {
     'quiet': True,
     'no_warnings': True,
     'default_search': 'auto',
-    'source_address': '0.0.0.0'
+    'source_address': '0.0.0.0',
+    'cookiefile': '/app/data/cookies.txt'  # Path to cookies file
 }
 
 ffmpeg_options = {'options': '-vn'}
@@ -241,11 +242,14 @@ class YTDLSource(discord.PCMVolumeTransformer):
     @classmethod
     async def from_url(cls, url, *, loop=None, stream=False):
         loop = loop or asyncio.get_event_loop()
-        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=not stream))
-        if 'entries' in data:
-            data = data['entries'][0]
-        filename = data['url'] if stream else ytdl.prepare_filename(data)
-        return cls(discord.FFmpegPCMAudio(filename, **ffmpeg_options), data=data)
+        try:
+            data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=not stream))
+            if 'entries' in data:
+                data = data['entries'][0]
+            filename = data['url'] if stream else ytdl.prepare_filename(data)
+            return cls(discord.FFmpegPCMAudio(filename, **ffmpeg_options), data=data)
+        except Exception as e:
+            raise commands.CommandInvokeError(f"Failed to fetch audio: {str(e)}")
 
 @bot.hybrid_command(description="Play a song from a YouTube URL")
 async def play(ctx, url: str):
@@ -256,14 +260,17 @@ async def play(ctx, url: str):
     if ctx.guild.id not in music_queues:
         music_queues[ctx.guild.id] = []
     async with ctx.typing():
-        player = await YTDLSource.from_url(url, loop=bot.loop, stream=True)
-        music_queues[ctx.guild.id].append(player)
-        voice_client = ctx.guild.voice_client or await channel.connect()
-        if not voice_client.is_playing():
-            voice_client.play(player, after=lambda e: bot.loop.create_task(play_next(ctx)))
-            await ctx.send(f'Now playing: {player.title}')
-        else:
-            await ctx.send(f'Added to queue: {player.title}')
+        try:
+            player = await YTDLSource.from_url(url, loop=bot.loop, stream=True)
+            music_queues[ctx.guild.id].append(player)
+            voice_client = ctx.guild.voice_client or await channel.connect()
+            if not voice_client.is_playing():
+                voice_client.play(player, after=lambda e: bot.loop.create_task(play_next(ctx)))
+                await ctx.send(f'Now playing: {player.title}')
+            else:
+                await ctx.send(f'Added to queue: {player.title}')
+        except Exception as e:
+            await ctx.send(f"Error playing song: {str(e)}")
 
 async def play_next(ctx):
     if ctx.guild.id not in music_queues or not music_queues[ctx.guild.id]:
